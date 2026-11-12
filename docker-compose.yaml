@@ -1,0 +1,10 @@
+services:
+  carsales-com-au-scraper:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      # Optional at home. On a cloud server, set an Australian residential proxy.
+      # - CARSALES_COM_AU_PROXY=http://user:pass@host:port

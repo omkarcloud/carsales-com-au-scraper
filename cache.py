@@ -1,0 +1,55 @@
+"""A tiny in-memory response cache with the call shape the carsales_com_au
+module uses. Results live in this process only and expire after `ttl` (a
+datetime.timedelta). It is what makes paging fast: every search page is kept
+with the token that asks carsales for the page after it, so page N+1 is one
+request once page N has been served.
+
+Every hit is a deep copy, like a row read back from a database: a caller
+that edits its result (routes.paginate pops `pagination`) never changes
+what the next caller gets.
+"""
+import copy
+import json
+import threading
+import time
+
+_store = {}
+_lock = threading.Lock()
+MAX_ENTRIES = 2000
+
+
+class DontCache:
+    """Wrap a result to return it without storing it (an answer that is
+    valid but known to be incomplete, e.g. a listing whose photos failed)."""
+
+    def __init__(self, data):
+        self.data = data
+
+
+def _key(namespace, data):
+    return namespace + ":" + json.dumps(data, sort_keys=True, default=str)
+
+
+def cached_call(namespace, data, fn, ttl, cache=True, refresh=False):
+    """Serve fn(**data) from memory for `ttl`, else run it and keep the result.
+    Exceptions from fn propagate uncached; `refresh=True` skips the read and
+    overwrites the entry."""
+    if not (cache and ttl):
+        result = fn(**data)
+        return result.data if isinstance(result, DontCache) else result
+    key = _key(namespace, data)
+    now = time.time()
+    if not refresh:
+        with _lock:
+            hit = _store.get(key)
+        if hit and hit[0] > now:
+            return copy.deepcopy(hit[1])
+    result = fn(**data)
+    if isinstance(result, DontCache):
+        return result.data
+    with _lock:
+        if len(_store) >= MAX_ENTRIES:
+            for stale in [k for k, (expires, _) in _store.items() if expires <= now] or list(_store)[:100]:
+                _store.pop(stale, None)
+        _store[key] = (now + ttl.total_seconds(), copy.deepcopy(result))
+    return result
