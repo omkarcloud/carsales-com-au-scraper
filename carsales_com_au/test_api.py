@@ -164,6 +164,37 @@ def test_answer_for_the_wrong_page_is_an_upstream_error(monkeypatch, cache):
     assert "page 3" in str(e.value)
 
 
+def _empty_page(parse, page, times):
+    """parsers.parse_search, except that `page` comes back without cars the first `times` times."""
+    served = []
+
+    def wrapped(payload):
+        state = parse(payload)
+        if state["page"] == page and len(served) < times:
+            served.append(1)
+            return {**state, "results": [], "cursor": None}
+        return state
+    return wrapped
+
+
+def test_in_range_page_served_empty_is_asked_again(monkeypatch, cache):
+    page2 = fixture("search_corolla_price_page2.json")
+    site = Site(monkeypatch, pages={2: page2, 3: page2})
+    monkeypatch.setattr(parsers, "parse_search", _empty_page(parsers.parse_search, 2, times=1))
+    out = api.cars_search(**_search_params(make="Toyota", model="Corolla", page=2))
+    assert len(out["results"]) == 22 and len(site.postbacks) == 2
+
+
+def test_in_range_page_always_empty_is_an_upstream_error_not_cached(monkeypatch, cache):
+    page2 = fixture("search_corolla_price_page2.json")
+    Site(monkeypatch, pages={n: page2 for n in range(2, 9)})
+    monkeypatch.setattr(parsers, "parse_search", _empty_page(parsers.parse_search, 2, times=99))
+    with pytest.raises(fetch.CarsalesUpstreamError) as e:
+        api.cars_search(**_search_params(make="Toyota", model="Corolla", page=2))
+    assert "page 2" in str(e.value)
+    assert not [k for k in cache.rows if '"page": 2' in k[1]]
+
+
 def test_page_past_the_end_is_empty_and_costs_no_postback(monkeypatch, cache):
     small = _renumber(fixture("search_small_last_page.json"), 1)       # a 2-page search (27 cars)
     site = Site(monkeypatch)

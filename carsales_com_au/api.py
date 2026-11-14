@@ -78,8 +78,11 @@ def _page_state(**key):
             state = parsers.parse_search(fetch_postback(cursor["url"], body, path, query, f"search page {page}"))
         except CarsalesBadRequest:
             continue
-        if state["page"] == page:
+        if state["page"] == page and (state["results"] or page > _total_pages(previous)):
             return state
+        # a wrong page, or a page the search's own total says holds cars served
+        # empty (2026-11-14: page 11 of 11 of make=INEOS, 21 cars, once): never
+        # cached, asked again from a fresh page before
     raise CarsalesUpstreamError(f"carsales.com.au did not serve page {page} of the search")
 
 
