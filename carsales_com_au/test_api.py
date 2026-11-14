@@ -327,11 +327,14 @@ def _listing(monkeypatch, gallery=None, sheet=None, details="details_dealer_used
     calls = []
 
     def side(name, value):
-        def call(car):
+        answers = list(value) if isinstance(value, list) else None
+
+        def call(car, *args):
             calls.append((name, car))
-            if isinstance(value, Exception):
-                raise value
-            return value
+            answer = answers.pop(0) if answers is not None else value
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
         return call
     monkeypatch.setattr(api, "fetch_details", lambda car: calls.append(("details", car)) or fixture(details))
     monkeypatch.setattr(api, "fetch_gallery", side("gallery", gallery))
@@ -375,6 +378,44 @@ def test_car_details_price_sheet_without_its_table_is_served_but_not_cached(monk
     out = api.car_details(car="OAG-AD-26091046")
     assert out["price"]["breakdown"] is None and out["images"]
     assert cache.rows == {}
+
+
+def test_car_details_sheet_without_its_table_is_asked_again_for_a_listing_that_has_one(monkeypatch, cache):
+    calls = _listing(monkeypatch, fixture("gallery_dealer_used.json"),
+                     [raw("price_guide_no_table.html"), raw("price_guide_dealer.html")])
+    asked = []
+    real = api.fetch_price_guide
+    monkeypatch.setattr(api, "fetch_price_guide", lambda car, tries: asked.append(tries) or real(car))
+    out = api.car_details(car="OAG-AD-26091046")
+    assert asked == [1, fetch.PRICE_TABLE_TRIES - 1]
+    assert out["price"]["breakdown"][-1]["amount"] == 26990 and len(cache.rows) == 1
+    assert calls.count(("price", "OAG-AD-26091046")) == 2
+
+
+def test_car_details_dealer_indicative_price_has_no_table_asked_once_and_cached(monkeypatch, cache):
+    # a dealer's car priced "indicative drive away" is carsales' own estimate:
+    # the site keeps no table for it, so the sheet is not asked again
+    calls = _listing(monkeypatch, fixture("gallery_dealer_used.json"), raw("price_guide_no_table.html"))
+    real = parsers.parse_details
+
+    def indicative(payload, car):
+        record = real(payload, car)
+        record["price"]["type"] = "indicative_drive_away"
+        return record
+    monkeypatch.setattr(parsers, "parse_details", indicative)
+    out = api.car_details(car="OAG-AD-26091046")
+    assert calls.count(("price", "OAG-AD-26091046")) == 1
+    assert out["price"]["breakdown"] is None and len(cache.rows) == 1
+
+
+def test_sheet_has_table():
+    def record(price_type, seller_type):
+        return {"price": {"type": price_type}, "seller": {"type": seller_type}}
+    assert not api._sheet_has_table(record("indicative_drive_away", "dealer"))
+    assert not api._sheet_has_table(record("indicative_excluding_government_charges", "dealer"))
+    assert api._sheet_has_table(record("indicative_drive_away", "showroom"))
+    assert api._sheet_has_table(record("drive_away", "dealer"))
+    assert api._sheet_has_table(record(None, "dealer")) and api._sheet_has_table({"price": None})
 
 
 def test_car_details_unknown_listing(monkeypatch, cache):
@@ -430,6 +471,16 @@ def test_price_sheet_never_with_its_table_stops_after_the_tries(monkeypatch):
     sheet = fetch.fetch_price_guide("OAG-AD-26091046")
     assert not fetch.has_price_table(sheet) and len(asked) == fetch.PRICE_TABLE_TRIES
     assert parsers.parse_price_guide(sheet) == []
+
+
+def test_price_sheet_asked_once_when_told(monkeypatch, capsys):
+    asked, dropped = [], []
+    monkeypatch.setattr(fetch, "_request", lambda *a, **k: lambda: asked.append(1) or raw("price_guide_no_table.html"))
+    monkeypatch.setattr(fetch, "_drop_session", lambda lane="site": dropped.append(lane))
+    sheet = fetch.fetch_price_guide("OAG-AD-26091046", 1)
+    assert not fetch.has_price_table(sheet) and len(asked) == 1
+    assert dropped == ["price"]                      # the next ask on this thread rides a fresh exit
+    assert capsys.readouterr().out == ""             # one ask is not a failure worth a line
 
 
 def test_price_sheet_rides_its_own_exit(monkeypatch):

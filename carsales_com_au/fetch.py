@@ -307,27 +307,28 @@ def fetch_gallery(listing_id):
                  page_path=listing_path(listing_id))
 
 
-def fetch_price_guide(listing_id):
+def fetch_price_guide(listing_id, tries=PRICE_TABLE_TRIES):
     """The listing's price sheet (HTML), or None when the site has none for
     it. For an id it does not know this path answers HTTP 500, every time
     (2026-11-12), so a 500 here means "no sheet" and is not retried. It rides
-    its own exit (config.CARSALES_COM_AU_PRICE_EXIT): see has_price_table."""
+    its own exit (config.CARSALES_COM_AU_PRICE_EXIT): see has_price_table.
+    A sheet served without its table is asked again, `tries` answers in all
+    (cars/details asks once beside the listing call, then again only for a
+    listing the site keeps a table for: see api._sheet_has_table)."""
     label = f"price guide {listing_id}"
     send = _request("GET", PRICE_GUIDE_PATH + listing_id, label,
                     headers={**SHEET_HEADERS, "referer": SITE + listing_path(listing_id)}, timeout=PRICE_TIMEOUT,
                     missing=(404, 500), lane="price")
     try:
-        sheet = _retrying(send, label, lane="price")
-        for _ in range(PRICE_TABLE_TRIES - 1):
+        for _ in range(tries):
+            sheet = _retrying(send, label, lane="price")
             if not sheet or has_price_table(sheet):
                 break
-            # served without its table: ask again from a fresh exit
-            _drop_session("price")
-            sheet = _retrying(send, label, lane="price")
+            _drop_session("price")       # served without its table: the next ask rides a fresh exit
     except CarsalesNotFound:
         return None
-    if sheet and not has_price_table(sheet):
-        print(f"carsales-com-au: {label} came back without its price table {PRICE_TABLE_TRIES} times "
+    if tries > 1 and sheet and not has_price_table(sheet):
+        print(f"carsales-com-au: {label} came back without its price table {tries} times "
               "(carsales sends it to Australian home connections: outside Australia or on a cloud server, "
               "set CARSALES_COM_AU_PRICE_PROXY or CARSALES_COM_AU_PROXY to an Australian proxy: datacenter is enough)")
     return sheet

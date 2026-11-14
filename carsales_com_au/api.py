@@ -26,7 +26,7 @@ from carsales_com_au import cache_config as ttl
 from carsales_com_au import parsers, refs
 from carsales_com_au.fetch import (CarsalesBadRequest, CarsalesNotFound, CarsalesUpstreamError, fetch_details,
                                    fetch_gallery, fetch_postback, fetch_price_guide, fetch_research, fetch_search,
-                                   has_price_table)
+                                   has_price_table, PRICE_TABLE_TRIES)
 
 SIDE_WORKERS = 16       # the photo and price-sheet calls of cars/details run beside the listing call
 _side_pool = None
@@ -229,11 +229,25 @@ def _side(future):
         return None, True
 
 
+def _sheet_has_table(record):
+    """Whether the site keeps a price table for this listing. A dealer's car
+    priced "indicative drive away" (carsales' own estimate: the dealer gave
+    no drive-away price) never has one: 1,156 of 1,156 on 2026-11-14, on the
+    AWS gateway, AU datacenter and AU residential exits alike. Every other
+    dealer and private listing has one; a showroom car priced that way has
+    it for most makes (3,290 of 4,154), so it is asked again."""
+    price = record.get("price") or {}
+    seller = record.get("seller") or {}
+    return not ((price.get("type") or "").startswith("indicative") and seller.get("type") == "dealer")
+
+
 def _details(car):
     # the photos and the price sheet are their own calls on the site; they
-    # run beside the listing call, each on its worker's own session
+    # run beside the listing call, each on its worker's own session. The
+    # sheet is asked once there: whether a sheet without its table is worth
+    # asking again depends on the listing
     gallery_call = _pool().submit(fetch_gallery, car)
-    price_call = _pool().submit(fetch_price_guide, car)
+    price_call = _pool().submit(fetch_price_guide, car, 1)
     try:
         record = parsers.parse_details(fetch_details(car), car)
     except Exception:
@@ -242,8 +256,10 @@ def _details(car):
         raise
     gallery, gallery_failed = _side(gallery_call)
     sheet, sheet_failed = _side(price_call)
-    if sheet and not has_price_table(sheet):
-        sheet_failed = True             # served without its breakdown, not cached: the next ask tries again
+    if sheet and not has_price_table(sheet) and _sheet_has_table(record):
+        sheet, sheet_failed = _side(_pool().submit(fetch_price_guide, car, PRICE_TABLE_TRIES - 1))
+        if sheet and not has_price_table(sheet):
+            sheet_failed = True         # served without its breakdown, not cached: the next ask tries again
     media = parsers.parse_gallery(gallery) if gallery else {"images": [], "videos": []}
     if media["images"]:
         record["images"] = media["images"]
