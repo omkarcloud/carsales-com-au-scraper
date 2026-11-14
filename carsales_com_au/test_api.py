@@ -418,15 +418,43 @@ def test_price_sheet_without_its_table_is_asked_again(monkeypatch):
     answers = [raw("price_guide_no_table.html"), raw("price_guide_no_table.html"), raw("price_guide_dealer.html")]
     asked, dropped = [], []
     monkeypatch.setattr(fetch, "_request", lambda *a, **k: lambda: asked.append(1) or answers[len(asked) - 1])
-    monkeypatch.setattr(fetch, "_drop_session", lambda: dropped.append(1))
+    monkeypatch.setattr(fetch, "_drop_session", lambda lane="site": dropped.append(lane))
     sheet = fetch.fetch_price_guide("OAG-AD-26091046")
-    assert fetch.has_price_table(sheet) and len(asked) == 3 and len(dropped) == 2
+    assert fetch.has_price_table(sheet) and len(asked) == 3 and dropped == ["price", "price"]
 
 
 def test_price_sheet_never_with_its_table_stops_after_the_tries(monkeypatch):
     asked = []
     monkeypatch.setattr(fetch, "_request", lambda *a, **k: lambda: asked.append(1) or raw("price_guide_no_table.html"))
-    monkeypatch.setattr(fetch, "_drop_session", lambda: None)
+    monkeypatch.setattr(fetch, "_drop_session", lambda lane="site": None)
     sheet = fetch.fetch_price_guide("OAG-AD-26091046")
     assert not fetch.has_price_table(sheet) and len(asked) == fetch.PRICE_TABLE_TRIES
     assert parsers.parse_price_guide(sheet) == []
+
+
+def test_price_sheet_rides_its_own_exit(monkeypatch):
+    opened = []
+
+    class Resp:
+        status_code = 200
+        headers = {}
+        text = raw("price_guide_dealer.html")
+
+    class Sess:
+        cookies = {}
+
+        def __init__(self, exit):
+            opened.append(exit)
+
+        def request(self, *a, **k):
+            return Resp()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(fetch.config, "CARSALES_COM_AU_EXIT", "gateway:au")
+    monkeypatch.setattr(fetch.config, "CARSALES_COM_AU_PRICE_EXIT", "au")
+    monkeypatch.setattr(fetch.egress, "exit_session", lambda exit, **kw: Sess(exit))
+    monkeypatch.setattr(fetch, "_local", fetch.threading.local())
+    assert fetch.has_price_table(fetch.fetch_price_guide("OAG-AD-26091046"))
+    assert opened == ["au"]

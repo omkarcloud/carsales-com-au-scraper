@@ -127,10 +127,18 @@ class CarsalesNotFound(NotFound):
 _local = threading.local()
 
 
-def _session():
-    sess = getattr(_local, "session", None)
+# Two lanes, each its own exit knob: "site" (search, listing, photos, research:
+# config.CARSALES_COM_AU_EXIT) and "price" (the price sheet:
+# config.CARSALES_COM_AU_PRICE_EXIT), see has_price_table.
+_EXITS = {"site": "CARSALES_COM_AU_EXIT", "price": "CARSALES_COM_AU_PRICE_EXIT"}
+
+
+def _session(lane="site"):
+    attr = "session_" + lane
+    sess = getattr(_local, attr, None)
     if sess is None:
-        sess = _local.session = egress.exit_session(config.CARSALES_COM_AU_EXIT, impersonate=IMPERSONATE)
+        sess = egress.exit_session(getattr(config, _EXITS[lane]), impersonate=IMPERSONATE)
+        setattr(_local, attr, sess)
     if getattr(sess, "via_exit_gateway", False):
         # Every gateway request leaves from a new address: a DataDome cookie
         # earned by the last one would arrive from the wrong address. No call
@@ -139,10 +147,11 @@ def _session():
     return sess
 
 
-def _drop_session():
-    """Close the thread's session so the retry rides a fresh exit."""
-    sess = getattr(_local, "session", None)
-    _local.session = None
+def _drop_session(lane="site"):
+    """Close the thread's session of `lane` so the retry rides a fresh exit."""
+    attr = "session_" + lane
+    sess = getattr(_local, attr, None)
+    setattr(_local, attr, None)
     if sess is not None:
         try:
             sess.close()
@@ -150,17 +159,17 @@ def _drop_session():
             pass
 
 
-def _retrying(fn, label):
+def _retrying(fn, label, lane="site"):
     """Run fn() under the shared retry policy (CarsalesUpstreamError only,
-    Blocked included, each retry on a fresh session / exit; BadRequest and
-    NotFound surface immediately)."""
+    Blocked included, each retry on a fresh session / exit of `lane`;
+    BadRequest and NotFound surface immediately)."""
     last = None
     for attempt in range(1, config.MAX_RETRIES + 1):
         try:
             return fn()
         except CarsalesUpstreamError as e:
             last = e
-            _drop_session()
+            _drop_session(lane)
         print(f"carsales-com-au: {label} attempt {attempt}/{config.MAX_RETRIES} failed: {last}")
         if attempt < config.MAX_RETRIES:
             time.sleep(config.RETRY_BACKOFF * attempt)
@@ -188,10 +197,10 @@ def _classify(resp, label, not_found=CarsalesNotFound, missing=(404,)):
 
 
 def _request(method, path, label, *, headers, body=None, timeout=API_TIMEOUT, not_found=CarsalesNotFound,
-             missing=(404,)):
+             missing=(404,), lane="site"):
     def once():
         try:
-            resp = _session().request(method, SITE + path, headers=headers, data=body, timeout=timeout)
+            resp = _session(lane).request(method, SITE + path, headers=headers, data=body, timeout=timeout)
         except Exception as e:
             raise CarsalesUpstreamError(f"request failed for {label}: {type(e).__name__}: {e}")
         return _classify(resp, label, not_found, missing)
@@ -274,35 +283,36 @@ def fetch_gallery(listing_id):
 def fetch_price_guide(listing_id):
     """The listing's price sheet (HTML), or None when the site has none for
     it. For an id it does not know this path answers HTTP 500, every time
-    (2026-11-12), so a 500 here means "no sheet" and is not retried."""
+    (2026-11-12), so a 500 here means "no sheet" and is not retried. It rides
+    its own exit (config.CARSALES_COM_AU_PRICE_EXIT): see has_price_table."""
     label = f"price guide {listing_id}"
     send = _request("GET", PRICE_GUIDE_PATH + listing_id, label,
                     headers={**SHEET_HEADERS, "referer": SITE + listing_path(listing_id)}, timeout=PRICE_TIMEOUT,
-                    missing=(404, 500))
+                    missing=(404, 500), lane="price")
     try:
-        sheet = _retrying(send, label)
+        sheet = _retrying(send, label, lane="price")
         for _ in range(PRICE_TABLE_TRIES - 1):
             if not sheet or has_price_table(sheet):
                 break
-            # the table comes and goes from one answer to the next: ask again
-            _drop_session()
-            sheet = _retrying(send, label)
+            # served without its table: ask again from a fresh exit
+            _drop_session("price")
+            sheet = _retrying(send, label, lane="price")
     except CarsalesNotFound:
         return None
     if sheet and not has_price_table(sheet):
         print(f"carsales-com-au: {label} came back without its price table {PRICE_TABLE_TRIES} times "
-              "(it comes more often to Australian IPs: outside Australia or on a cloud server, "
-              "set CARSALES_COM_AU_PROXY to an Australian proxy)")
+              "(carsales sends it to Australian home connections: outside Australia or on a cloud server, "
+              "set CARSALES_COM_AU_PRICE_PROXY or CARSALES_COM_AU_PROXY to an Australian residential proxy)")
     return sheet
 
 
 def has_price_table(sheet):
-    """The site sometimes serves the price sheet with its notes only, no
-    table, and then the breakdown is empty. Measured 2026-11-14 through the
-    Sydney gateway: 153 of 1,000 listings had no table on the first answer,
-    97 of them had it on the next; for some listings it comes 1 time in 3-4
-    (same SYD CloudFront edge, every answer a cache miss: the origin
-    decides). From an Indian home IP 5 of 6 sheets had none."""
+    """The site sends some callers the price sheet with its notes only, no
+    table, and then the breakdown is empty. It goes by the caller's address
+    (measured 2026-11-14): AU residential exits 8/8 with the table; the
+    Sydney AWS gateway 847/1,000 at a light load, then about 1 in 8 while
+    ~20 requests/s were going through it (plus a 403); an Indian home IP
+    1 in 6. Same SYD CloudFront edge, every answer a cache miss."""
     return 'class="entry' in sheet
 
 
