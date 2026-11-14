@@ -208,7 +208,12 @@ def looks_blocked(text):
     return any(marker in head for marker in _BLOCK_MARKERS)
 
 
-def _classify(resp, label, not_found=CarsalesNotFound, missing=(404,)):
+# a listing taken down answers its details call HTTP 410 Gone (sold or
+# withdrawn, 2026-11-14), while its photos and price sheet still answer
+MISSING = (404, 410)
+
+
+def _classify(resp, label, not_found=CarsalesNotFound, missing=MISSING):
     """Map an HTTP response to the error taxonomy; return the body text.
     `not_found` is what a status in `missing` means for this surface."""
     status = resp.status_code
@@ -224,7 +229,7 @@ def _classify(resp, label, not_found=CarsalesNotFound, missing=(404,)):
 
 
 def _request(method, path, label, *, headers, body=None, timeout=API_TIMEOUT, not_found=CarsalesNotFound,
-             missing=(404,), lane="site"):
+             missing=MISSING, lane="site"):
     def once():
         try:
             resp = _session(lane).request(method, SITE + path, headers=headers, data=body, timeout=timeout)
@@ -318,7 +323,7 @@ def fetch_price_guide(listing_id, tries=PRICE_TABLE_TRIES):
     label = f"price guide {listing_id}"
     send = _request("GET", PRICE_GUIDE_PATH + listing_id, label,
                     headers={**SHEET_HEADERS, "referer": SITE + listing_path(listing_id)}, timeout=PRICE_TIMEOUT,
-                    missing=(404, 500), lane="price")
+                    missing=MISSING + (500,), lane="price")
     try:
         for _ in range(tries):
             sheet = _retrying(send, label, lane="price")

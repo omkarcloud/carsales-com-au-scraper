@@ -586,6 +586,8 @@ def test_classify_statuses():
     with pytest.raises(fetch.CarsalesNotFound) as e:
         fetch._classify(_Resp(404, "{}"), "listing OAG-AD-1")
     assert str(e.value) == "listing OAG-AD-1 not found"
+    with pytest.raises(fetch.CarsalesNotFound):          # a listing taken down: 410 Gone
+        fetch._classify(_Resp(410, "{}"), "listing OAG-AD-1")
     with pytest.raises(fetch.CarsalesBadRequest):
         fetch._classify(_Resp(404, "{}"), "search", fetch.CarsalesBadRequest)
     with pytest.raises(fetch.CarsalesBlocked):
