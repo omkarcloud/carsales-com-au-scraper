@@ -14,8 +14,10 @@ an environment variable; the defaults work out of the box.
                             CARSALES_COM_AU_PROXY. carsales sends the
                             breakdown table to Australian home connections;
                             cloud and overseas addresses mostly get the
-                            sheet without it. The sheet is ~9 KB, so an
-                            Australian residential proxy here costs little.
+                            sheet without it. An Australian datacenter
+                            proxy is enough here (a rotating one: a few of
+                            its addresses are blocked, a retry rides the
+                            next).
     CARSALES_COM_AU_FALLBACK_PROXY
                             proxy URL a worker switches to for 10 minutes
                             after carsales blocks it (default: none, retry

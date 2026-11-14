@@ -87,7 +87,7 @@ curl "http://localhost:8000/cars/details?car=OAG-AD-26356625"
 
 All 6 endpoints are now live at `http://localhost:8000`.
 
-carsales.com.au sits behind DataDome, and the scraper passes it over plain HTTP — no browser needed. From a home or office connection you need nothing else. On a cloud server, set `CARSALES_COM_AU_PROXY` to a residential proxy (`http://user:pass@host:port`) — Australian works best. Outside Australia, set `CARSALES_COM_AU_PRICE_PROXY` to an Australian residential proxy to get the on-road price breakdown — it is used for that one small call only. If you get blocked, set `CARSALES_COM_AU_FALLBACK_PROXY` and the scraper switches to it for 10 minutes after each block.
+carsales.com.au sits behind DataDome, and the scraper passes it over plain HTTP — no browser needed. From a home or office connection you need nothing else. On a cloud server, set `CARSALES_COM_AU_PROXY` to a residential proxy (`http://user:pass@host:port`) — Australian works best. Outside Australia, set `CARSALES_COM_AU_PRICE_PROXY` to an Australian proxy (a rotating datacenter one is enough) to get the on-road price breakdown — it is used for that one small call only. If you get blocked, set `CARSALES_COM_AU_FALLBACK_PROXY` and the scraper switches to it for 10 minutes after each block.
 
 ## 📚 Endpoints
 

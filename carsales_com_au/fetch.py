@@ -133,7 +133,7 @@ _local = threading.local()
 # site call was blocked rides config.CARSALES_COM_AU_FALLBACK_EXIT for
 # config.CARSALES_COM_AU_BLOCK_HOLD_S, then goes back to the default exit
 # (2026-11-14: the Sydney gateway refused 5 of 12 listing calls after ~30
-# min at ~20 requests/s; AU residential passed them).
+# min at ~20 requests/s; AU residential and AU datacenter exits passed them).
 _EXITS = {"site": "CARSALES_COM_AU_EXIT", "price": "CARSALES_COM_AU_PRICE_EXIT"}
 
 
@@ -326,7 +326,7 @@ def fetch_price_guide(listing_id):
     if sheet and not has_price_table(sheet):
         print(f"carsales-com-au: {label} came back without its price table {PRICE_TABLE_TRIES} times "
               "(carsales sends it to Australian home connections: outside Australia or on a cloud server, "
-              "set CARSALES_COM_AU_PRICE_PROXY or CARSALES_COM_AU_PROXY to an Australian residential proxy)")
+              "set CARSALES_COM_AU_PRICE_PROXY or CARSALES_COM_AU_PROXY to an Australian proxy: datacenter is enough)")
     return sheet
 
 
@@ -336,7 +336,8 @@ def has_price_table(sheet):
     (measured 2026-11-14): AU residential exits 8/8 with the table; the
     Sydney AWS gateway 847/1,000 at a light load, then about 1 in 8 while
     ~20 requests/s were going through it (plus a 403); an Indian home IP
-    1 in 6. Same SYD CloudFront edge, every answer a cache miss."""
+    1 in 6; AU datacenter 40/40 (2 of 8 ports 403 on everything: a retry
+    rides a fresh one). Same SYD CloudFront edge, every answer a cache miss."""
     return 'class="entry' in sheet
 
 
