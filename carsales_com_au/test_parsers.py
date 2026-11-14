@@ -96,6 +96,10 @@ def test_search_expression():
                     "._.Odometer.range(..50000)._.CarAll.keyword(sunroof).)")
     # a value can never break out of its term
     assert refs.search_expression(make="To(yo)ta") == "(And.Make.To yo ta.)"
+    # a dot in a name is written "_." like the site's own links, or the site drops the filter
+    assert refs.search_expression(make="Volkswagen", model="ID.4") == "(And.Make.Volkswagen._.Model.ID_.4.)"
+    assert refs.search_expression(model="ID. Buzz", badge="1.4 TSI") == "(And.Model.ID_. Buzz._.Badge.1_.4 TSI.)"
+    assert refs.search_expression(query="ID.4") == "(And.CarAll.keyword(ID.4).)"
 
 
 def test_search_query():

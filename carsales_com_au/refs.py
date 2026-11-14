@@ -186,10 +186,19 @@ SEARCH_PATH = "/cars/"
 
 def _term(value):
     """A value inside the expression. The grammar's own separators are the
-    dot and the parentheses; a value never needs them escaped on the site
-    (its own links carry "Mercedes-Benz", "CX-5", "Landcruiser Prado" as
-    they are), so only characters that would break the grammar are dropped."""
+    dot and the parentheses: parentheses would break it, so they are dropped
+    ("Mercedes-Benz", "CX-5", "Landcruiser Prado" go as they are)."""
     return re.sub(r"[()]", " ", str(value)).strip()
+
+
+def _name(value):
+    """A filter value (make, model, badge, ...) inside the expression. A dot
+    in it goes as "_." the way the site writes it (its own link for the
+    VW ID.4 carries Model.ID_.4.): a bare dot ends the term, and carsales
+    then drops the whole filter and answers every car on the site (measured
+    2026-11-14: Model.ID.4. -> 201,581 cars, Model.ID_.4. -> the 129 ID.4s;
+    the same for ID.5, ID. Buzz, ID. Buzz Cargo, BMW 3.0, Jaguar XJ5.3)."""
+    return _term(value).replace(".", "_.")
 
 
 def _range(low, high):
@@ -211,7 +220,7 @@ def search_expression(*, query=None, make=None, model=None, badge=None, conditio
 
     def add(name, value):
         if value is not None and value != "":
-            terms.append(f"{name}.{_term(value)}.")
+            terms.append(f"{name}.{_name(value)}.")
 
     add("Make", make)
     add("Model", model)
