@@ -84,6 +84,7 @@ DETAILS_API = "/_api/details-core"
 RESEARCH_API = "/_api/taco-makemodel"
 GALLERY_API = "/_api/gallery-core"
 PRICE_GUIDE_PATH = "/_details/api/v1/price-guide/carsales/"
+PRICE_TABLE_TRIES = 4    # a sheet without its price table is asked again, up to this many answers in all
 
 BREAKPOINT = "wide"
 JSON_HEADERS = {
@@ -279,9 +280,30 @@ def fetch_price_guide(listing_id):
                     headers={**SHEET_HEADERS, "referer": SITE + listing_path(listing_id)}, timeout=PRICE_TIMEOUT,
                     missing=(404, 500))
     try:
-        return _retrying(send, label)
+        sheet = _retrying(send, label)
+        for _ in range(PRICE_TABLE_TRIES - 1):
+            if not sheet or has_price_table(sheet):
+                break
+            # the table comes and goes from one answer to the next: ask again
+            _drop_session()
+            sheet = _retrying(send, label)
     except CarsalesNotFound:
         return None
+    if sheet and not has_price_table(sheet):
+        print(f"carsales-com-au: {label} came back without its price table {PRICE_TABLE_TRIES} times "
+              "(it comes more often to Australian IPs: outside Australia or on a cloud server, "
+              "set CARSALES_COM_AU_PROXY to an Australian proxy)")
+    return sheet
+
+
+def has_price_table(sheet):
+    """The site sometimes serves the price sheet with its notes only, no
+    table, and then the breakdown is empty. Measured 2026-11-14 through the
+    Sydney gateway: 153 of 1,000 listings had no table on the first answer,
+    97 of them had it on the next; for some listings it comes 1 time in 3-4
+    (same SYD CloudFront edge, every answer a cache miss: the origin
+    decides). From an Indian home IP 5 of 6 sheets had none."""
+    return 'class="entry' in sheet
 
 
 def fetch_research(make_slug, model_slug, year=None):

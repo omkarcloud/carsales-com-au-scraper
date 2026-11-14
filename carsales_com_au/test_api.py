@@ -337,6 +337,15 @@ def test_car_details_listing_without_price_sheet_is_cached(monkeypatch, cache):
     assert out["price"]["breakdown"] is None and len(cache.rows) == 1
 
 
+def test_car_details_price_sheet_without_its_table_is_served_but_not_cached(monkeypatch, cache):
+    # the site sometimes answers the sheet with its notes only: no breakdown,
+    # and the listing is not cached so the next ask tries the sheet again
+    _listing(monkeypatch, fixture("gallery_dealer_used.json"), raw("price_guide_no_table.html"))
+    out = api.car_details(car="OAG-AD-26091046")
+    assert out["price"]["breakdown"] is None and out["images"]
+    assert cache.rows == {}
+
+
 def test_car_details_unknown_listing(monkeypatch, cache):
     _listing(monkeypatch, fetch.CarsalesNotFound("photos not found"), None)
 
@@ -370,3 +379,23 @@ def test_model_details_name_without_a_slug_is_not_found(monkeypatch, cache):
     with pytest.raises(fetch.CarsalesNotFound):
         api.model_details(make="Toyota", model="日産", year=None)
     assert asked == [] and cache.rows == {}
+
+
+# ---- the price sheet's missing table -------------------------------------------------
+
+def test_price_sheet_without_its_table_is_asked_again(monkeypatch):
+    answers = [raw("price_guide_no_table.html"), raw("price_guide_no_table.html"), raw("price_guide_dealer.html")]
+    asked, dropped = [], []
+    monkeypatch.setattr(fetch, "_request", lambda *a, **k: lambda: asked.append(1) or answers[len(asked) - 1])
+    monkeypatch.setattr(fetch, "_drop_session", lambda: dropped.append(1))
+    sheet = fetch.fetch_price_guide("OAG-AD-26091046")
+    assert fetch.has_price_table(sheet) and len(asked) == 3 and len(dropped) == 2
+
+
+def test_price_sheet_never_with_its_table_stops_after_the_tries(monkeypatch):
+    asked = []
+    monkeypatch.setattr(fetch, "_request", lambda *a, **k: lambda: asked.append(1) or raw("price_guide_no_table.html"))
+    monkeypatch.setattr(fetch, "_drop_session", lambda: None)
+    sheet = fetch.fetch_price_guide("OAG-AD-26091046")
+    assert not fetch.has_price_table(sheet) and len(asked) == fetch.PRICE_TABLE_TRIES
+    assert parsers.parse_price_guide(sheet) == []

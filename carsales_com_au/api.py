@@ -25,7 +25,8 @@ from scraper_errors import UpstreamError
 from carsales_com_au import cache_config as ttl
 from carsales_com_au import parsers, refs
 from carsales_com_au.fetch import (CarsalesBadRequest, CarsalesNotFound, CarsalesUpstreamError, fetch_details,
-                                   fetch_gallery, fetch_postback, fetch_price_guide, fetch_research, fetch_search)
+                                   fetch_gallery, fetch_postback, fetch_price_guide, fetch_research, fetch_search,
+                                   has_price_table)
 
 SIDE_WORKERS = 16       # the photo and price-sheet calls of cars/details run beside the listing call
 _side_pool = None
@@ -238,6 +239,8 @@ def _details(car):
         raise
     gallery, gallery_failed = _side(gallery_call)
     sheet, sheet_failed = _side(price_call)
+    if sheet and not has_price_table(sheet):
+        sheet_failed = True             # served without its breakdown, not cached: the next ask tries again
     media = parsers.parse_gallery(gallery) if gallery else {"images": [], "videos": []}
     if media["images"]:
         record["images"] = media["images"]
