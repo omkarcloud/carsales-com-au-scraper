@@ -129,16 +129,38 @@ _local = threading.local()
 
 # Two lanes, each its own exit knob: "site" (search, listing, photos, research:
 # config.CARSALES_COM_AU_EXIT) and "price" (the price sheet:
-# config.CARSALES_COM_AU_PRICE_EXIT), see has_price_table.
+# config.CARSALES_COM_AU_PRICE_EXIT), see has_price_table. A thread whose
+# site call was blocked rides config.CARSALES_COM_AU_FALLBACK_EXIT for
+# config.CARSALES_COM_AU_BLOCK_HOLD_S, then goes back to the default exit
+# (2026-11-14: the Sydney gateway refused 5 of 12 listing calls after ~30
+# min at ~20 requests/s; AU residential passed them).
 _EXITS = {"site": "CARSALES_COM_AU_EXIT", "price": "CARSALES_COM_AU_PRICE_EXIT"}
+
+
+def _exit(lane):
+    fallback = getattr(config, "CARSALES_COM_AU_FALLBACK_EXIT", None)
+    if lane == "site" and fallback and getattr(_local, "hold_until", 0) > time.monotonic():
+        return fallback
+    return getattr(config, _EXITS[lane])
+
+
+def _hold():
+    """The site lane of this thread was blocked: its next sessions ride the fallback exit."""
+    if getattr(config, "CARSALES_COM_AU_FALLBACK_EXIT", None):
+        _local.hold_until = time.monotonic() + config.CARSALES_COM_AU_BLOCK_HOLD_S
 
 
 def _session(lane="site"):
     attr = "session_" + lane
     sess = getattr(_local, attr, None)
+    exit = _exit(lane)
+    if sess is not None and getattr(_local, attr + "_exit", None) != exit:
+        _drop_session(lane)              # a hold began or ended: change exits
+        sess = None
     if sess is None:
-        sess = egress.exit_session(getattr(config, _EXITS[lane]), impersonate=IMPERSONATE)
+        sess = egress.exit_session(exit, impersonate=IMPERSONATE)
         setattr(_local, attr, sess)
+        setattr(_local, attr + "_exit", exit)
     if getattr(sess, "via_exit_gateway", False):
         # Every gateway request leaves from a new address: a DataDome cookie
         # earned by the last one would arrive from the wrong address. No call
@@ -169,6 +191,8 @@ def _retrying(fn, label, lane="site"):
             return fn()
         except CarsalesUpstreamError as e:
             last = e
+            if lane == "site" and isinstance(e, CarsalesBlocked):
+                _hold()
             _drop_session(lane)
         print(f"carsales-com-au: {label} attempt {attempt}/{config.MAX_RETRIES} failed: {last}")
         if attempt < config.MAX_RETRIES:

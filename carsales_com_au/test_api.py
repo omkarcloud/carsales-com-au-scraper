@@ -458,3 +458,63 @@ def test_price_sheet_rides_its_own_exit(monkeypatch):
     monkeypatch.setattr(fetch, "_local", fetch.threading.local())
     assert fetch.has_price_table(fetch.fetch_price_guide("OAG-AD-26091046"))
     assert opened == ["au"]
+
+
+# ---- the block fallback --------------------------------------------------------------
+
+class _Exits:
+    """egress.exit_session stand-in: records each exit asked for; the default
+    exit answers `statuses` in turn, the fallback always 200."""
+
+    def __init__(self, monkeypatch, statuses):
+        self.opened, self.statuses = [], list(statuses)
+        monkeypatch.setattr(fetch.config, "CARSALES_COM_AU_EXIT", "gateway:au")
+        monkeypatch.setattr(fetch.config, "CARSALES_COM_AU_FALLBACK_EXIT", "au")
+        monkeypatch.setattr(fetch.config, "CARSALES_COM_AU_BLOCK_HOLD_S", 600)
+        monkeypatch.setattr(fetch.config, "RETRY_BACKOFF", 0)
+        monkeypatch.setattr(fetch.egress, "exit_session", self.session)
+        monkeypatch.setattr(fetch, "_local", fetch.threading.local())
+
+    def session(self, exit, **kw):
+        self.opened.append(exit)
+        outer = self
+
+        class Resp:
+            def __init__(self, status):
+                self.status_code, self.headers = status, {}
+                self.text = raw("blocked.html") if status == 403 else '{"root": {}}'
+
+        class Sess:
+            cookies = {}
+
+            def request(self, *a, **k):
+                return Resp(outer.statuses.pop(0) if exit == "gateway:au" and outer.statuses else 200)
+
+            def close(self):
+                pass
+        return Sess()
+
+
+def test_a_blocked_thread_rides_the_fallback_exit_for_the_hold(monkeypatch):
+    exits = _Exits(monkeypatch, [403])
+    fetch._retrying(fetch._request("GET", "/x", "x", headers={}), "x")
+    assert exits.opened == ["gateway:au", "au"]
+    fetch._retrying(fetch._request("GET", "/x", "x", headers={}), "x")
+    assert exits.opened == ["gateway:au", "au"]                # still on the fallback session
+
+
+def test_after_the_hold_the_thread_goes_back_to_the_default_exit(monkeypatch):
+    exits = _Exits(monkeypatch, [403])
+    clock = [1000.0]
+    monkeypatch.setattr(fetch.time, "monotonic", lambda: clock[0])
+    fetch._retrying(fetch._request("GET", "/x", "x", headers={}), "x")
+    clock[0] += 601
+    fetch._retrying(fetch._request("GET", "/x", "x", headers={}), "x")
+    assert exits.opened == ["gateway:au", "au", "gateway:au"]
+
+
+def test_no_fallback_exit_retries_on_the_default_exit(monkeypatch):
+    exits = _Exits(monkeypatch, [403])
+    monkeypatch.setattr(fetch.config, "CARSALES_COM_AU_FALLBACK_EXIT", None)
+    fetch._retrying(fetch._request("GET", "/x", "x", headers={}), "x")
+    assert exits.opened == ["gateway:au", "gateway:au"]

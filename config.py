@@ -16,6 +16,12 @@ an environment variable; the defaults work out of the box.
                             cloud and overseas addresses mostly get the
                             sheet without it. The sheet is ~9 KB, so an
                             Australian residential proxy here costs little.
+    CARSALES_COM_AU_FALLBACK_PROXY
+                            proxy URL a worker switches to for 10 minutes
+                            after carsales blocks it (default: none, retry
+                            on the same exit). Lets you run direct or on a
+                            cheap exit and pay for a residential proxy only
+                            while you are being blocked.
 
 Everything else below is a plain constant with a working default — edit it
 here if you need to.
@@ -35,3 +41,8 @@ CARSALES_COM_AU_EXIT = os.environ.get("CARSALES_COM_AU_PROXY") or None
 
 # The exit of the price sheet alone: CARSALES_COM_AU_PRICE_PROXY, else the one above.
 CARSALES_COM_AU_PRICE_EXIT = os.environ.get("CARSALES_COM_AU_PRICE_PROXY") or CARSALES_COM_AU_EXIT
+
+
+# The exit a worker rides for CARSALES_COM_AU_BLOCK_HOLD_S after a block.
+CARSALES_COM_AU_FALLBACK_EXIT = os.environ.get("CARSALES_COM_AU_FALLBACK_PROXY") or None
+CARSALES_COM_AU_BLOCK_HOLD_S = 600
