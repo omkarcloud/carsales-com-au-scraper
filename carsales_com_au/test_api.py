@@ -518,3 +518,19 @@ def test_no_fallback_exit_retries_on_the_default_exit(monkeypatch):
     monkeypatch.setattr(fetch.config, "CARSALES_COM_AU_FALLBACK_EXIT", None)
     fetch._retrying(fetch._request("GET", "/x", "x", headers={}), "x")
     assert exits.opened == ["gateway:au", "gateway:au"]
+
+
+def test_a_blocked_call_is_retried_without_waiting_other_failures_back_off(monkeypatch):
+    slept = []
+    monkeypatch.setattr(fetch.time, "sleep", slept.append)
+    monkeypatch.setattr(fetch, "_drop_session", lambda lane="site": None)
+    monkeypatch.setattr(fetch, "_hold", lambda: None)
+    monkeypatch.setattr(fetch.config, "RETRY_BACKOFF", 2)
+    failures = [fetch.CarsalesBlocked("403"), fetch.CarsalesUpstreamError("HTTP 502")]
+
+    def call():
+        if failures:
+            raise failures.pop(0)
+        return "ok"
+    assert fetch._retrying(call, "x") == "ok"
+    assert slept == [4]                 # no wait after the block (attempt 1), 2 x 2 s after the 502 (attempt 2)

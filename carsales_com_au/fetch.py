@@ -195,7 +195,10 @@ def _retrying(fn, label, lane="site"):
                 _hold()
             _drop_session(lane)
         print(f"carsales-com-au: {label} attempt {attempt}/{config.MAX_RETRIES} failed: {last}")
-        if attempt < config.MAX_RETRIES:
+        # a block is not over in seconds: waiting does not help, a fresh exit does,
+        # so a blocked call is retried at once (2026-11-14: the 2 s / 4 s waits
+        # after 403s halved a 12-worker listing run). Other failures back off.
+        if attempt < config.MAX_RETRIES and not isinstance(last, CarsalesBlocked):
             time.sleep(config.RETRY_BACKOFF * attempt)
     raise last
 
