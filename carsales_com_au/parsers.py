@@ -38,6 +38,7 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 from carsales_com_au.refs import LISTING_ID_RE, SITE, absolute, clean_listing_link
+from scraper_utils.text import squashed as clean
 
 CURRENCY = "AUD"
 PAGE_SIZE = 22        # organic cards per page
@@ -133,13 +134,6 @@ def _body(payload):
 
 
 # ---- values --------------------------------------------------------------------------
-
-def clean(value):
-    """A trimmed string, or None for empty / placeholder values."""
-    if not isinstance(value, str):
-        return None
-    value = " ".join(value.split())
-    return value or None
 
 
 def to_int(value):

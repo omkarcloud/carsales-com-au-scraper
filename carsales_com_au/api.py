@@ -233,7 +233,7 @@ def _sheet_has_table(record):
     """Whether the site keeps a price table for this listing. A dealer's car
     priced "indicative drive away" (carsales' own estimate: the dealer gave
     no drive-away price) never has one: 1,156 of 1,156 on 2026-11-14, on the
-    AWS gateway, AU datacenter and AU residential exits alike. Every other
+    gateway, AU datacenter and AU residential exits alike. Every other
     dealer and private listing has one; a showroom car priced that way has
     it for most makes (3,290 of 4,154), so it is asked again."""
     price = record.get("price") or {}

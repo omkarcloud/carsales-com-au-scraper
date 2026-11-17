@@ -71,6 +71,7 @@ import egress
 import fastjson
 from scraper_errors import BadRequest, Blocked, NotFound, UpstreamError
 from carsales_com_au.refs import SITE, listing_path, research_path
+from scraper_utils import sessions
 
 IMPERSONATE = "chrome"
 # A gateway exit request gets 29 s in all; answers take 0.5-3 s, so a hung
@@ -174,11 +175,7 @@ def _drop_session(lane="site"):
     attr = "session_" + lane
     sess = getattr(_local, attr, None)
     setattr(_local, attr, None)
-    if sess is not None:
-        try:
-            sess.close()
-        except Exception:
-            pass
+    sessions.close_quietly(sess)
 
 
 def _retrying(fn, label, lane="site"):
@@ -343,7 +340,7 @@ def has_price_table(sheet):
     """The site sends some callers the price sheet with its notes only, no
     table, and then the breakdown is empty. It goes by the caller's address
     (measured 2026-11-14): AU residential exits 8/8 with the table; the
-    Sydney AWS gateway 847/1,000 at a light load, then about 1 in 8 while
+    Sydney gateway 847/1,000 at a light load, then about 1 in 8 while
     ~20 requests/s were going through it (plus a 403); an Indian home IP
     1 in 6; AU datacenter 40/40 (2 of 8 ports 403 on everything: a retry
     rides a fresh one). Same SYD CloudFront edge, every answer a cache miss."""
